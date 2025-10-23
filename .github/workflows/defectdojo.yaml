@@ -1,0 +1,44 @@
+name: Import Dependabot Alerts to DefectDojo
+
+on:
+  schedule:
+    - cron: '0/5 * * * *'  
+jobs:
+  import-alerts:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: read  # For GitHub alerts API
+
+    steps:
+      - name: Fetch Dependabot Alerts & Import to DefectDojo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_PRODUCT_ID: ${{ secrets.DD_PRODUCT_ID }}
+        run: |
+          # Step 1: Fetch Dependabot alerts via GitHub API (JSON)
+          ALERTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/security-advisories?filter=auto:fixed")
+
+          # Step 2: Convert to DefectDojo format (simple mapping; enhance as needed)
+          # Example: Extract CVE, severity, etc., into JSON array
+          #FINDINGS=$(echo "$ALERTS" | jq -r '[.[] | {title: .vulnerability.title, severity: .vulnerability.severity, description: .vulnerability.description, cve: .vulnerability.identifiers[].value | select(contains("CVE"))}]')
+
+          # Step 3: Create temp JSON file for import
+          echo "$ALERTS" > dependabot-findings.json
+
+          # Step 4: Import to DefectDojo via API
+          curl -X POST "http://109.206.199.204:49800/api/v2/import-scan/" \
+            -H "Authorization: Token $DD_API_KEY" \
+            -F "file=@dependabot-findings.json" \
+            -F "scan_type=GitHub Dependabot Scan" \
+            -F "product=$DD_PRODUCT_ID" \
+            -F "active=true" \
+            -F "verified=true" \
+            -F "min_severity=Medium"  # Filter in DefectDojo
+
+          # Cleanup
+          rm dependabot-findings.json
+
+          echo "Import complete! Check DefectDojo Product ID $DD_PRODUCT_ID for new findings."
